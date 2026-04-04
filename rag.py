@@ -194,11 +194,6 @@ def write_checksum(index_path: str, checksum: str) -> None:
         f.write(checksum)
 
 
-# ---------------------------------------------------------------------------
-# FAISS index build / load
-# ---------------------------------------------------------------------------
-
-
 def build_faiss_index(
     folder: str = "docs",
     index_path: str = "faiss_index",
