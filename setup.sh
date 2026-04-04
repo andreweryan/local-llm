@@ -16,5 +16,8 @@ source venv/bin/activate
 # Install Project
 pip install -e .
 
-# Run
-python main.py
+# Make RAG documents directory 
+mkdir docs
+
+# Make Faiss directory
+mkdir faiss_index
