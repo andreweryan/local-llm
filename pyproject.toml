@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "local-llm"
+version = "0.0.1"
+authors = [
+    { name = "Andrew Ryan", email = "andrewryan@duck.com" }
+]
+description = "Local LLM with RAG"
+readme = "README.pypi.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "fastapi",
+    "uvicorn",
+    "faiss-cpu",
+    "ollama"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/andreweryan/local-llm-rag"
+"Bug Tracker" = "https://github.com/andreweryan/local-llm-rag"
+"Source Code" = "https://github.com/andreweryan/local-llm-rag"
+
+[tool.setuptools.packages]
+find = {}
