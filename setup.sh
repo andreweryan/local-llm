@@ -15,3 +15,6 @@ source venv/bin/activate
 
 # Install Project
 pip install -e .
+
+# Run
+python main.py

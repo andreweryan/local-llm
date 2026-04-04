@@ -17,7 +17,9 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "faiss-cpu",
-    "ollama"
+    "ollama",
+    "requests",
+    "pypdf"
 ]
 
 [project.urls]
