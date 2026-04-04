@@ -22,7 +22,12 @@ dependencies = [
     "pypdf",
     "black",
     "flake8",
-    "precommit"
+    "precommit",
+    "pytest",
+    "isort",
+    "mypy",
+    "detect-secrets",
+    "no_implicit_optional"
 ]
 
 [project.urls]
