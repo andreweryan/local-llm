@@ -28,26 +28,13 @@ def load_documents(folder="docs"):
     return docs
 
 # --- Split text into overlapping chunks ---
-def chunk_text(text, chunk_size=1000, overlap=100):
+def chunk_text(text, chunk_size=500, overlap=100):
     chunks = []
     start = 0
     while start < len(text):
         end = start + chunk_size
         chunks.append(text[start:end])
         start += chunk_size - overlap
-    return chunks
-
-import re
-
-def chunk_text_by_sentences(text, max_sentences=5, overlap_sentences=1):
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    chunks = []
-    i = 0
-    while i < len(sentences):
-        chunk_sentences = sentences[i:i + max_sentences]
-        chunks.append(" ".join(chunk_sentences).strip())
-        # Move i forward but leave overlap
-        i += max_sentences - overlap_sentences
     return chunks
 
 # --- Get embedding for a single text using Ollama ---
@@ -61,7 +48,7 @@ def get_embedding(text):
     return np.array(response.json()["embedding"], dtype=np.float32)
 
 # --- Build FAISS index from documents ---
-def build_faiss_index(folder="docs", index_path="faiss_index", save=True, chunk_size=500, overlap=50, max_sentences=3, overlap_sentences=1):
+def build_faiss_index(folder="docs", index_path="faiss_index", save=True, chunk_size=500, overlap=50, max_sentences=10, overlap_sentences=2):
     os.makedirs(index_path, exist_ok=True)
     raw_docs = load_documents(folder)
     all_chunks = []
@@ -73,7 +60,6 @@ def build_faiss_index(folder="docs", index_path="faiss_index", save=True, chunk_
             page_num = page_info["page"]
             source = page_info["source"]
             chunks = chunk_text(page_text, chunk_size=chunk_size, overlap=overlap)
-            # chunks = chunk_text_by_sentences(page_text, max_sentences=max_sentences, overlap_sentences=overlap_sentences)
             for chunk in chunks:
                 all_chunks.append({"text": chunk, "source": source, "page": page_num})
                 embeddings_list.append(get_embedding(chunk))
