@@ -30,6 +30,7 @@ README.pypi.md
 test.py
 _docs/
 docs/*.md
+docs/*.pdf
 *.txt
 *.pdf
 *.json
