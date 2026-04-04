@@ -36,9 +36,28 @@ According to the context, Andrew worked on GeoYOLO."""
 
 
 def wait_for_ollama(host: str, timeout: int = 10) -> bool:
-    """
-    Ollama connectivity check
-    """
+    """Ensure Ollama is running and reachable."""
+
+    # Check if Ollama is up.
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            r = requests.get(f"{host}/api/tags", timeout=2)
+            if r.status_code == 200:
+                return True
+        except requests.RequestException:
+            pass
+        time.sleep(0.5)
+
+    # If not up, try starting Ollama
+    print("Starting Ollama server...")
+    import subprocess
+
+    proc = subprocess.Popen(
+        ["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+
+    # Wait until for response or timeout
     start = time.time()
     while time.time() - start < timeout:
         try:
@@ -47,6 +66,8 @@ def wait_for_ollama(host: str, timeout: int = 10) -> bool:
                 return True
         except requests.RequestException:
             time.sleep(0.5)
+
+    print("Failed to start Ollama within timeout.")
     return False
 
 

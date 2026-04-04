@@ -1,10 +1,11 @@
 import os
 import re
 import json
-import hashlib
-import numpy as np
 import faiss
+import hashlib
 import requests
+import numpy as np
+from tqdm import tqdm
 from pypdf import PdfReader
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
@@ -17,7 +18,11 @@ MAX_PER_SOURCE_PAGE = int(os.getenv("RAG_MAX_PER_SOURCE_PAGE", "3"))
 
 
 def clean_text(text: str) -> str:
-    """ """
+    """Clean text and remove unsafe Unicode characters."""
+    # Replace invalid Unicode characters
+    text = text.encode("utf-8", errors="replace").decode("utf-8")
+
+    # Normalize line breaks
     text = text.replace("\r\n", "\n").replace("\r", "\n")
 
     lines = []
@@ -34,6 +39,7 @@ def clean_text(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
     text = re.sub(r" {2,}", " ", text)
+
     return text.strip()
 
 
@@ -240,14 +246,13 @@ def build_faiss_index(
 
     # Pass 2: embed
     embeddings_list: list[np.ndarray] = []
-    for i, chunk_dict in enumerate(all_chunks):
+
+    for chunk_dict in tqdm(all_chunks, desc="Embedding chunks", unit="chunk"):
         page_label = (
             f"p{chunk_dict['page']}" if chunk_dict["page"] is not None else "flat"
         )
-        print(
-            f"  [{i + 1}/{len(all_chunks)}] {chunk_dict['source']} {page_label}",
-            flush=True,
-        )
+        # tqdm.set_description(f"{chunk_dict['source']} {page_label}")
+        # tqdm.write(f"{chunk_dict['source']} {page_label}")  # prints above the progress bar
         embeddings_list.append(get_embedding(chunk_dict["text"]))
 
     print("Embedding complete — building FAISS index...", flush=True)
@@ -261,7 +266,7 @@ def build_faiss_index(
     faiss.write_index(index, os.path.join(index_path, "index.faiss"))
     np.save(os.path.join(index_path, "embeddings.npy"), embeddings)
     with open(os.path.join(index_path, "chunks.json"), "w", encoding="utf-8") as f:
-        json.dump(all_chunks, f, ensure_ascii=False)
+        json.dump(all_chunks, f, indent=4, ensure_ascii=False)
     write_checksum(index_path, checksum_folder(folder))
 
     print(f"FAISS index built with {len(all_chunks)} chunks.", flush=True)

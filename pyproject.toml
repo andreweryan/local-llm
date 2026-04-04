@@ -19,6 +19,7 @@ dependencies = [
     "faiss-cpu",
     "ollama",
     "requests",
+    "tqdm",
     "pypdf",
     "black",
     "flake8",
