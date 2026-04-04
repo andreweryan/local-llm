@@ -16,12 +16,8 @@ MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.1"))
 MAX_PER_SOURCE_PAGE = int(os.getenv("RAG_MAX_PER_SOURCE_PAGE", "3"))
 
 
-# ---------------------------------------------------------------------------
-# Text cleaning
-# ---------------------------------------------------------------------------
-
-
 def clean_text(text: str) -> str:
+    """ """
     text = text.replace("\r\n", "\n").replace("\r", "\n")
 
     lines = []
@@ -41,12 +37,8 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-# ---------------------------------------------------------------------------
-# Document loading
-# ---------------------------------------------------------------------------
-
-
 def load_pdf(file_path: str) -> list[dict]:
+    """ """
     reader = PdfReader(file_path)
     pages = []
     for page_num, page in enumerate(reader.pages, start=1):
@@ -63,6 +55,7 @@ def load_pdf(file_path: str) -> list[dict]:
 
 
 def load_documents(folder: str = "docs") -> list[list[dict]]:
+    """ """
     docs = []
     for filename in sorted(os.listdir(folder)):
         path = os.path.join(folder, filename)
@@ -78,12 +71,8 @@ def load_documents(folder: str = "docs") -> list[list[dict]]:
     return docs
 
 
-# ---------------------------------------------------------------------------
-# Chunking
-# ---------------------------------------------------------------------------
-
-
 def infer_chunk_params(text: str) -> tuple[int, int]:
+    """ """
     lines = [line for line in text.splitlines() if line.strip()]
     if not lines:
         return CHUNK_SIZE, CHUNK_OVERLAP
@@ -167,12 +156,8 @@ def chunk_text(
     return chunks, False
 
 
-# ---------------------------------------------------------------------------
-# Embeddings
-# ---------------------------------------------------------------------------
-
-
 def get_embedding(text: str) -> np.ndarray:
+    """ """
     response = requests.post(
         f"{OLLAMA_HOST}/api/embeddings",
         json={"model": EMBED_MODEL, "prompt": text},
@@ -182,12 +167,8 @@ def get_embedding(text: str) -> np.ndarray:
     return np.array(response.json()["embedding"], dtype=np.float32)
 
 
-# ---------------------------------------------------------------------------
-# Checksumming
-# ---------------------------------------------------------------------------
-
-
 def checksum_folder(folder: str) -> str:
+    """ """
     h = hashlib.md5()
     for filename in sorted(os.listdir(folder)):
         path = os.path.join(folder, filename)
@@ -199,6 +180,7 @@ def checksum_folder(folder: str) -> str:
 
 
 def read_stored_checksum(index_path: str) -> str | None:
+    """ """
     checksum_file = os.path.join(index_path, "docs_checksum.txt")
     if os.path.exists(checksum_file):
         with open(checksum_file) as f:
@@ -207,6 +189,7 @@ def read_stored_checksum(index_path: str) -> str | None:
 
 
 def write_checksum(index_path: str, checksum: str) -> None:
+    """ """
     with open(os.path.join(index_path, "docs_checksum.txt"), "w") as f:
         f.write(checksum)
 
@@ -220,6 +203,7 @@ def build_faiss_index(
     folder: str = "docs",
     index_path: str = "faiss_index",
 ) -> tuple[list[dict], faiss.Index, np.ndarray]:
+    """ """
     os.makedirs(index_path, exist_ok=True)
     raw_docs = load_documents(folder)
 
@@ -292,6 +276,7 @@ def build_faiss_index(
 def load_faiss_index(
     index_path: str = "faiss_index",
 ) -> tuple[list[dict], faiss.Index, np.ndarray]:
+    """ """
     index = faiss.read_index(os.path.join(index_path, "index.faiss"))
     embeddings = np.load(os.path.join(index_path, "embeddings.npy"))
     with open(os.path.join(index_path, "chunks.json"), "r", encoding="utf-8") as f:
@@ -303,6 +288,7 @@ def load_or_build_index(
     folder: str = "docs",
     index_path: str = "faiss_index",
 ) -> tuple[list[dict], faiss.Index, np.ndarray]:
+    """ """
     index_file = os.path.join(index_path, "index.faiss")
 
     if os.path.exists(index_file):
@@ -318,14 +304,10 @@ def load_or_build_index(
     return build_faiss_index(folder, index_path)
 
 
-# ---------------------------------------------------------------------------
-# Search
-# ---------------------------------------------------------------------------
-
-
 def deduplicate(
     chunks: list[dict], max_per_source_page: int = MAX_PER_SOURCE_PAGE
 ) -> list[dict]:
+    """ """
     seen: dict[tuple, int] = {}
     result = []
     for c in chunks:
@@ -343,6 +325,7 @@ def search(
     top_k: int = 10,
     min_score: float = MIN_SCORE,
 ) -> list[dict]:
+    """ """
     q_emb = get_embedding(query).reshape(1, -1)
     faiss.normalize_L2(q_emb)
     distances, indices = index.search(q_emb, top_k)

@@ -35,12 +35,10 @@ EXAMPLE of incorrect output format:
 According to the context, Andrew worked on GeoYOLO."""
 
 
-# ---------------------------------------------------------------------------
-# Ollama connectivity check
-# ---------------------------------------------------------------------------
-
-
 def wait_for_ollama(host: str, timeout: int = 10) -> bool:
+    """
+    Ollama connectivity check
+    """
     start = time.time()
     while time.time() - start < timeout:
         try:
@@ -50,11 +48,6 @@ def wait_for_ollama(host: str, timeout: int = 10) -> bool:
         except requests.RequestException:
             time.sleep(0.5)
     return False
-
-
-# ---------------------------------------------------------------------------
-# App lifespan
-# ---------------------------------------------------------------------------
 
 
 @asynccontextmanager
@@ -79,24 +72,22 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-# ---------------------------------------------------------------------------
-# Request / response models
-# ---------------------------------------------------------------------------
-
-
 class PromptRequest(BaseModel):
+    """
+    Request model
+    """
+
     prompt: str
     top_k: int = RAG_TOP_K
 
 
 class GenerateResponse(BaseModel):
+    """
+    Response model
+    """
+
     response: str
     sources: list[dict]
-
-
-# ---------------------------------------------------------------------------
-# Citation formatting
-# ---------------------------------------------------------------------------
 
 
 def format_citation(chunk: dict) -> str:
@@ -107,11 +98,6 @@ def format_citation(chunk: dict) -> str:
     if chunk["page"] is not None:
         return f"[{chunk['source']} - page {chunk['page']}]"
     return f"[{chunk['source']}]"
-
-
-# ---------------------------------------------------------------------------
-# Endpoint
-# ---------------------------------------------------------------------------
 
 
 @app.post("/generate", response_model=GenerateResponse)
