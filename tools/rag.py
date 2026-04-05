@@ -8,6 +8,8 @@ import numpy as np
 from tqdm import tqdm
 from pypdf import PdfReader
 
+from .base import Tool
+
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
@@ -338,3 +340,27 @@ def search(
 
     results.sort(key=lambda x: x["score"], reverse=True)
     return deduplicate(results)
+
+
+class RAGTool(Tool):
+    name = "rag_search"
+    description = "Search internal documents for relevant context."
+
+    def run(self, query: str, app, **kwargs) -> tuple[str, list]:
+        top_k = kwargs.get("top_k", 10)
+        chunks = app.state.chunks
+        index = app.state.index
+
+        results = search(query, chunks, index, top_k=top_k)
+
+        context_parts = []
+        for c in results:
+            if c["page"] is not None:
+                citation = f"[{c['source']} - page {c['page']}]"
+            else:
+                citation = f"[{c['source']}]"
+
+            context_parts.append(f"{c['text']} {citation}")
+
+        context = "\n\n".join(context_parts)
+        return context, results
