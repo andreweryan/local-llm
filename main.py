@@ -9,7 +9,6 @@ from fastapi import FastAPI, HTTPException
 from tools.registry import TOOLS
 from tools.rag import load_or_build_index
 
-INDEX_PATH = os.getenv("FAISS_INDEX_PATH", "faiss_index")
 DOCS_FOLDER = os.getenv("DOCS_FOLDER", "docs")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3:latest")
@@ -110,7 +109,7 @@ async def lifespan(app: FastAPI):
     else:
         print("Ollama is up.", flush=True)
 
-    chunks, index, _ = load_or_build_index(DOCS_FOLDER, INDEX_PATH)
+    chunks, index, _ = load_or_build_index(DOCS_FOLDER)
 
     app.state.chunks = chunks
     app.state.index = index

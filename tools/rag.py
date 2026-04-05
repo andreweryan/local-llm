@@ -204,9 +204,9 @@ def write_checksum(index_path: str, checksum: str) -> None:
 
 def build_faiss_index(
     folder: str = "docs",
-    index_path: str = "faiss_index",
 ) -> tuple[list[dict], faiss.Index, np.ndarray]:
     """ """
+    index_path = os.path.join(folder, "faiss_index")
     os.makedirs(index_path, exist_ok=True)
     raw_docs = load_documents(folder)
 
@@ -288,9 +288,9 @@ def load_faiss_index(
 
 def load_or_build_index(
     folder: str = "docs",
-    index_path: str = "faiss_index",
 ) -> tuple[list[dict], faiss.Index, np.ndarray]:
     """ """
+    index_path = os.path.join(folder, "faiss_index")
     index_file = os.path.join(index_path, "index.faiss")
 
     if os.path.exists(index_file):
@@ -298,12 +298,12 @@ def load_or_build_index(
         stored = read_stored_checksum(index_path)
         if current != stored:
             print("Docs folder has changed — rebuilding FAISS index...", flush=True)
-            return build_faiss_index(folder, index_path)
+            return build_faiss_index(folder)
         print("Loading existing FAISS index...", flush=True)
         return load_faiss_index(index_path)
 
     print("No FAISS index found — building from documents...", flush=True)
-    return build_faiss_index(folder, index_path)
+    return build_faiss_index(folder)
 
 
 def deduplicate(
