@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import requests
 import subprocess
 from pydantic import BaseModel
@@ -14,52 +15,39 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3:latest")
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "10"))
 
-SYSTEM_PROMPT_TEMPLATE = """
-You are a retrieval assistant.
+ROUTER_PROMPT = """
+You are an AI tool router.
 
-You have access to the following tools:
+Available tools:
 
-{tool_list}
+rag_search:
+Search internal documents for relevant information.
 
-Use tools whenever they can help gather information before answering the user.
-Just provide the response, do not add additional language such as: According to the tool result...
+time:
+Return the user's current local time.
+
+haversine:
+Compute the distance between two coordinates.
+
+Return JSON only.
+
+If a tool is needed:
+
+{
+  "tool": "<tool_name>",
+  "arguments": { ... }
+}
+
+If no tool is needed:
+
+{
+  "tool": "none",
+  "response": "<answer>"
+}
 """
 
 
-def build_tool_list():
-    """
-    Convert the registered tools into a prompt-friendly list.
-    """
-    lines = []
-    for tool in TOOLS.values():
-        lines.append(f"{tool.name}: {tool.description}")
-    return "\n".join(lines)
-
-
-def choose_tool(query: str):
-    """
-    Simple router to decide which tool to use.
-    """
-
-    q = query.lower()
-
-    if "distance" in q or "kilometers" in q or "miles" in q:
-        # crude detection; you can improve with regex or NLP later
-        return "haversine"
-    elif "time" in q or "current time" in q:
-        return "time"
-
-    # fallback to rag
-    return "rag_search"
-
-
-SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.format(tool_list=build_tool_list())
-
-
 def wait_for_ollama(host: str, timeout: int = 10) -> bool:
-    """
-    Ensure Ollama is running and reachable.
-    """
 
     start = time.time()
 
@@ -72,8 +60,6 @@ def wait_for_ollama(host: str, timeout: int = 10) -> bool:
             pass
 
         time.sleep(0.5)
-
-    print("Starting Ollama server...")
 
     subprocess.Popen(
         ["ollama", "serve"],
@@ -93,19 +79,36 @@ def wait_for_ollama(host: str, timeout: int = 10) -> bool:
 
         time.sleep(0.5)
 
-    print("Failed to start Ollama within timeout.")
     return False
+
+
+def call_ollama(messages, format_json=False):
+
+    payload = {
+        "model": OLLAMA_MODEL,
+        "stream": False,
+        "messages": messages,
+    }
+
+    if format_json:
+        payload["format"] = "json"
+
+    r = requests.post(
+        f"{OLLAMA_HOST}/api/chat",
+        json=payload,
+        timeout=120,
+    )
+
+    r.raise_for_status()
+
+    return r.json()["message"]["content"]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
     if not wait_for_ollama(OLLAMA_HOST, timeout=10):
-        print(
-            f"WARNING: Ollama not reachable at {OLLAMA_HOST}. "
-            "The /generate endpoint will fail until it is running.",
-            flush=True,
-        )
+        print("WARNING: Ollama not reachable.", flush=True)
     else:
         print("Ollama is up.", flush=True)
 
@@ -135,54 +138,73 @@ class GenerateResponse(BaseModel):
 @app.post("/generate", response_model=GenerateResponse)
 def generate(req: PromptRequest):
 
-    tool_name = choose_tool(req.prompt)
+    try:
+
+        router_output = call_ollama(
+            [
+                {"role": "system", "content": ROUTER_PROMPT},
+                {"role": "user", "content": req.prompt},
+            ],
+            format_json=True,
+        )
+
+        decision = json.loads(router_output)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Router failed: {e}")
+
+    tool_name = decision.get("tool")
+
+    # Normal chat
+    if tool_name == "none":
+
+        response = decision.get("response", "")
+
+        return GenerateResponse(
+            response=response,
+            sources=[],
+        )
+
+    # Tool execution
+    if tool_name not in TOOLS:
+        raise HTTPException(status_code=400, detail="Unknown tool requested")
 
     tool = TOOLS[tool_name]
 
-    if tool_name == "rag_search":
-        context, sources = tool.run(req.prompt, app, top_k=req.top_k)
+    try:
 
-        if not context:
-            return GenerateResponse(
-                response="I don't know — no relevant documents were found for your question.",
-                sources=[],
+        if tool_name == "rag_search":
+
+            context, sources = tool.run(
+                req.prompt,
+                app,
+                top_k=req.top_k,
             )
 
-        user_message = f"Context:\n{context}\n\nQuestion: {req.prompt}"
-    else:
-        result, sources = tool.run(req.prompt, app)
+            user_message = f"Context:\n{context}\n\nQuestion:{req.prompt}"
 
-        user_message = f"Tool result:\n{result}\n\nQuestion: {req.prompt}"
+        else:
 
-    try:
-        response = requests.post(
-            f"{OLLAMA_HOST}/api/chat",
-            json={
-                "model": OLLAMA_MODEL,
-                "stream": False,
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": user_message,
-                    },
-                ],
-            },
-            timeout=120,
+            result, sources = tool.run(
+                req.prompt,
+                app,
+                **decision.get("arguments", {}),
+            )
+
+            user_message = f"Tool result:\n{result}\n\nQuestion:{req.prompt}"
+
+        answer = call_ollama(
+            [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": user_message},
+            ]
         )
 
-        response.raise_for_status()
-
-    except requests.RequestException as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Ollama unavailable: {e}. Ensure `ollama serve` is running.",
-        )
-
-    answer = response.json().get("message", {}).get("content", "").strip()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Tool execution failed: {e}")
 
     return GenerateResponse(
-        response=answer or "(Empty response from model)",
+        response=answer.strip(),
         sources=sources,
     )
 
