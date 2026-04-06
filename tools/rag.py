@@ -2,6 +2,7 @@ import os
 import re
 import json
 import faiss
+import logging
 import hashlib
 import requests
 import numpy as np
@@ -10,10 +11,13 @@ from pypdf import PdfReader
 
 from .base import Tool
 
+logging.getLogger("pypdf").setLevel(logging.ERROR)
+
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3:latest")
 # EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "mxbai-embed-large")
+EMBED_DIM = os.getenv("OLLAMA_EMBED_MODEL_DIMS", "1024")
 EMBED_TOKEN_LIMIT = int(os.getenv("EMBED_TOKEN_LIMIT", "460"))
 
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))
@@ -196,8 +200,8 @@ def infer_chunk_params(text: str) -> tuple[int, int]:
 
     # Structured / tabular: very short lines, sparse words
     if avg_line_len < 40 and chars_per_word < 6:
-        chunk_chars = 1000  # ~200 tokens — keep table rows together
-        overlap_chars = 100  # one row of context
+        chunk_chars = 100  # ~200 tokens — keep table rows together
+        overlap_chars = 10  # one row of context
 
     # Equation / citation heavy: long individual tokens inflate chars-per-word
     elif chars_per_word > 8:
@@ -294,11 +298,13 @@ def get_embedding(text: str) -> np.ndarray:
         json={"model": EMBED_MODEL, "input": text},
         timeout=60,
     )
-    if not response.ok:
-        print(
-            f"[embed] 400 on chunk (len={len(text)}): {text[:120]!r}",
-            flush=True,
-        )
+
+    if response.status_code == 400:
+        # print(f"[embed] Skipping bad chunk (len={len(text)}): {text[:80]!r}", flush=True)
+        # Return a zero vector — FAISS will score it at 0 after normalization
+        # so it will never surface in search results
+        dim = int(EMBED_DIM)  # output dimension
+        return np.zeros(dim, dtype=np.float32)
     response.raise_for_status()
     return np.array(response.json()["embeddings"][0], dtype=np.float32)
 
@@ -343,6 +349,12 @@ def build_faiss_index(
                 if len(chunk.split()) < min_words:
                     skipped += 1
                     continue
+                non_numeric = [
+                    w for w in chunk.split() if not re.match(r"^[\d.%,\-]+$", w)
+                ]
+                if len(non_numeric) / max(len(chunk.split()), 1) < 0.3:
+                    skipped += 1
+                    continue
                 real_page = page_info["page"]
                 all_chunks.append(
                     {
@@ -361,8 +373,12 @@ def build_faiss_index(
 
     embeddings_list: list[np.ndarray] = []
 
-    for chunk_dict in tqdm(all_chunks, desc="Embedding chunks", unit="chunk"):
+    pbar = tqdm(all_chunks, desc="Embedding chunks", unit="chunk")
+
+    for chunk_dict in pbar:
         embeddings_list.append(get_embedding(chunk_dict["text"]))
+        # pbar.set_description(f"{chunk_dict['source']}, {chunk_dict['page']}")
+
     embeddings = np.array(embeddings_list, dtype=np.float32)
     faiss.normalize_L2(embeddings)
     index = faiss.IndexFlatIP(embeddings.shape[1])
