@@ -5,15 +5,16 @@ Local LLM API with Tools
     - context length: 8192
     - embedding length: 4096
     - quantization: Q4_0
-- nomic-embed-text
-    - parameters: 137M
-    - context length: 2048
-    - embedding length: 768
+- mxbai-embed-large
+    - architecture: bert
+    - parameters: 334M
+    - context length: 512
+    - embedding length: 1024
     - quantization: F16
 - Faiss (Facebook AI Similarity Search)
     - library for efficient similarity search and clustering of dense vectors
 
-To get setup initially, run `source setup.sh`. This will automatically install ollama, pull the llama3 and nomic-embed-text models, create a virtual environment, install python dependencies and create two directories, one to be used for adding your RAG context documents and another for storing files related to Faiss.
+To get setup initially, run `source setup.sh`. This will automatically install ollama, pull the llama3 and mxbai-embed-large models, create a virtual environment, install python dependencies and create two directories, one to be used for adding your RAG context documents and another for storing files related to Faiss.
 
 Before starting the server, add documents to the `docs` folder.
 

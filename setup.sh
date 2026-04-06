@@ -4,8 +4,8 @@ curl -fsSL https://ollama.com/install.sh | sh
 # Pull llama3
 ollama pull llama3
 
-# Pull text embedding model
-ollama pull nomic-embed-text
+# Pull text embedding models
+ollama pull mxbai-embed-large
 
 # Create venv
 python -m venv venv
@@ -16,7 +16,7 @@ source venv/bin/activate
 # Install Project
 pip install -e .
 
-# Make RAG documents directory 
+# Make RAG documents directory
 mkdir docs
 
 # Make Faiss directory
