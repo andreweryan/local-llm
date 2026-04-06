@@ -18,9 +18,6 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3:latest")
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "10"))
 
-# ---------------------------------------------------------------------------
-# Prompts
-# ---------------------------------------------------------------------------
 
 ROUTER_PROMPT = """
 You are an AI tool router.
@@ -89,11 +86,6 @@ Rules:
 """
 
 
-# ---------------------------------------------------------------------------
-# Ollama helpers
-# ---------------------------------------------------------------------------
-
-
 def wait_for_ollama(host: str, timeout: int = 10) -> bool:
     start = time.time()
     while time.time() - start < timeout:
@@ -142,11 +134,6 @@ def call_ollama(messages: list[dict], format_json: bool = False) -> str:
     return r.json()["message"]["content"]
 
 
-# ---------------------------------------------------------------------------
-# Query rewriting
-# ---------------------------------------------------------------------------
-
-
 def rewrite_query(prompt: str, history: list[dict]) -> str:
     """
     Return a history-aware rewrite of `prompt` suitable for vector search.
@@ -177,11 +164,6 @@ def rewrite_query(prompt: str, history: list[dict]) -> str:
         return prompt
 
 
-# ---------------------------------------------------------------------------
-# App lifecycle
-# ---------------------------------------------------------------------------
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not wait_for_ollama(OLLAMA_HOST, timeout=10):
@@ -197,11 +179,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-
-
-# ---------------------------------------------------------------------------
-# Request / response models
-# ---------------------------------------------------------------------------
 
 
 class PromptRequest(BaseModel):
@@ -221,11 +198,6 @@ class GenerateResponse(BaseModel):
     sources: list[dict]
     session_id: Optional[str] = None
     rewritten_query: Optional[str] = None
-
-
-# ---------------------------------------------------------------------------
-# Routing helpers
-# ---------------------------------------------------------------------------
 
 
 def _build_router_messages(prompt: str, history: list[dict]) -> list[dict]:
@@ -261,11 +233,6 @@ def _run_tool_step(
         fragment = f"Tool '{tool_name}' result:\n{result}"
 
     return fragment, sources
-
-
-# ---------------------------------------------------------------------------
-# /generate endpoint
-# ---------------------------------------------------------------------------
 
 
 @app.post("/generate", response_model=GenerateResponse)
@@ -390,11 +357,6 @@ def generate(req: PromptRequest):
     )
 
 
-# ---------------------------------------------------------------------------
-# Internal logging helper
-# ---------------------------------------------------------------------------
-
-
 def _log_error(req: PromptRequest, session_id, rewritten_query, t_start, detail):
     logger.log(
         session_id=session_id,
@@ -408,11 +370,6 @@ def _log_error(req: PromptRequest, session_id, rewritten_query, t_start, detail)
     )
 
 
-# ---------------------------------------------------------------------------
-# /memory endpoints
-# ---------------------------------------------------------------------------
-
-
 @app.get("/memory/{session_id}")
 def get_memory(session_id: str):
     """Inspect the stored conversation history for a session."""
@@ -424,11 +381,6 @@ def clear_memory(session_id: str):
     """Wipe the conversation history for a session."""
     mem.clear(session_id)
     return {"session_id": session_id, "cleared": True}
-
-
-# ---------------------------------------------------------------------------
-# /health
-# ---------------------------------------------------------------------------
 
 
 @app.get("/health")
