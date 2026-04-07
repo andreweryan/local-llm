@@ -2,10 +2,12 @@
 # chat.sh — terminal chat client for local-llm API
 
 SESSION="${1:-$(python3 -c 'import uuid; print(uuid.uuid4())')}"
-TOP_K="${2:-10}"
-MAX_TURNS="${3:-5}" # default 5 if not provided
+DOCS_FOLDER="${2:-10}"
+TOP_K="${3:-10}"
+MAX_TURNS="${4:-5}" # default 5 if not provided
 API_URL="http://localhost:8000"  # always local
 export SESSION_ID="$SESSION"
+export DOCS_FOLDER="$DOCS_FOLDER"
 export MEMORY_MAX_TURNS="$MAX_TURNS"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +38,6 @@ health_ready() {
 if ! health_ready; then
     echo -e "${DIM}Server not running — starting main.py...${RESET}"
 
-    # Pass MAX_TURNS dynamically if provided
     if [[ -n "$MAX_TURNS" ]]; then
         MEMORY_MAX_TURNS="$MAX_TURNS" python3 -u "$SCRIPT_DIR/main.py" >"$LOG_FILE" 2>&1 &
     else
@@ -71,7 +72,7 @@ if ! health_ready; then
         exit 1
     fi
 
-    echo -e "${DIM}Server ready.${RESET}"
+    # echo -e "${DIM}Server ready.${RESET}"
 else
     echo -e "${DIM}Server already running at $API_URL${RESET}"
 fi
@@ -97,7 +98,8 @@ trap cleanup EXIT INT TERM
 # Chat UI
 # ---------------------------------------------------------------------------
 
-echo -e "${BOLD}local-llm chat${RESET}  ${DIM}session: $SESSION${RESET}"
+echo -e "${DIM}session name: $SESSION${RESET}"
+echo -e "${DIM}restored last $MAX_TURNS${RESET} ${DIM}prompts"
 echo -e "${DIM}Commands: exit | sources | clear | session${RESET}"
 echo -e "${DIM}────────────────────────────────────────────────────${RESET}"
 
@@ -115,14 +117,14 @@ while true; do
                 echo -e "${DIM}No sources from last query.${RESET}"
             else
                 echo -e "${YELLOW}Sources:${RESET}"
-                echo "$LAST_SOURCES" | python3 -c '
-import sys, json
-sources=json.load(sys.stdin)
-for i,s in enumerate(sources,1):
-    page=f" p.{s.get(\"page\")}" if s.get("page") else ""
-    score=s.get("rerank_score","")
-    print(f"  {i}. {s[\"source\"]}{page}  [score: {score}]")
-'
+                python3 << 'EOF'
+import sys, json, os
+sources = json.loads(os.environ["LAST_SOURCES"])
+for i, s in enumerate(sources, 1):
+    page = f" p.{s.get('page')}" if s.get("page") else ""
+    score = s.get("rerank_score", "")
+    print(f"  {i}. {s['source']}{page}  [score: {score}]")
+EOF
             fi
             continue
             ;;
@@ -166,6 +168,7 @@ except Exception as e:
 
     REWRITTEN=$(python3 -c 'import sys,json; print(json.loads(sys.argv[1]).get("rewritten_query",""))' "$RESPONSE" 2>/dev/null)
     LAST_SOURCES=$(python3 -c 'import sys,json; print(json.dumps(json.loads(sys.argv[1]).get("sources",[])))' "$RESPONSE" 2>/dev/null)
+    export LAST_SOURCES
     SOURCE_COUNT=$(python3 -c 'import sys,json; print(len(json.loads(sys.argv[1])))' "$LAST_SOURCES" 2>/dev/null)
 
     echo -e "${GREEN}Assistant:${RESET} $ANSWER"
