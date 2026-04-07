@@ -5,6 +5,7 @@ import faiss
 import logging
 import hashlib
 import requests
+import threading
 import numpy as np
 from tqdm import tqdm
 from pypdf import PdfReader
@@ -15,7 +16,6 @@ logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3:latest")
-# EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "mxbai-embed-large")
 EMBED_DIM = os.getenv("OLLAMA_EMBED_MODEL_DIMS", "1024")
 EMBED_TOKEN_LIMIT = int(os.getenv("EMBED_TOKEN_LIMIT", "460"))
@@ -23,7 +23,7 @@ EMBED_TOKEN_LIMIT = int(os.getenv("EMBED_TOKEN_LIMIT", "460"))
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
 MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.1"))
-MAX_PER_SOURCE_PAGE = int(os.getenv("RAG_MAX_PER_SOURCE_PAGE", "3"))
+MAX_PER_SOURCE_PAGE = int(os.getenv("RAG_MAX_PER_SOURCE_PAGE", "10"))
 RERANK_TOP_N = int(os.getenv("RAG_RERANK_TOP_N", "5"))
 
 RERANK_PROMPT = """\
@@ -336,11 +336,37 @@ def write_checksum(index_path: str, checksum: str) -> None:
 def build_faiss_index(
     folder: str = "docs",
 ) -> tuple[list[dict], faiss.Index, np.ndarray]:
+    """
+    Incremental FAISS index builder:
+      - Reuses unchanged embeddings in the existing FAISS index.
+      - Only new/modified chunks are embedded and added.
+      - FAISS index is updated instead of rebuilt from scratch.
+    """
     index_path = os.path.join(folder, "faiss_index")
     os.makedirs(index_path, exist_ok=True)
+
+    # Load existing index if available
+    chunks_file = os.path.join(index_path, "chunks.json")
+    embeddings_file = os.path.join(index_path, "embeddings.npy")
+    index_file = os.path.join(index_path, "index.faiss")
+
+    if (
+        os.path.exists(chunks_file)
+        and os.path.exists(embeddings_file)
+        and os.path.exists(index_file)
+    ):
+        with open(chunks_file, "r", encoding="utf-8") as f:
+            old_chunks = json.load(f)
+        old_embeddings = np.load(embeddings_file)
+        index = faiss.read_index(index_file)
+    else:
+        old_chunks, old_embeddings = [], np.zeros((0, int(EMBED_DIM)), dtype=np.float32)
+        index = None
+
     raw_docs = load_documents(folder)
     all_chunks: list[dict] = []
     skipped = 0
+
     for doc_pages in raw_docs:
         for page_info in doc_pages:
             page_chunks, from_headings = chunk_text(page_info["text"])
@@ -355,6 +381,7 @@ def build_faiss_index(
                 if len(non_numeric) / max(len(chunk.split()), 1) < 0.3:
                     skipped += 1
                     continue
+                chunk_hash = hashlib.md5(chunk.encode("utf-8")).hexdigest()
                 real_page = page_info["page"]
                 all_chunks.append(
                     {
@@ -364,32 +391,63 @@ def build_faiss_index(
                         "dedup_key": real_page if real_page is not None else chunk_i,
                         "from_headings": from_headings,
                         "is_reference": is_references_chunk(chunk),
+                        "chunk_hash": chunk_hash,
                     }
                 )
+
     print(
         f"Chunking complete — {len(all_chunks)} chunks to embed ({skipped} skipped).",
         flush=True,
     )
 
-    embeddings_list: list[np.ndarray] = []
+    # Map old chunk hashes to their embeddings and FAISS index positions
+    hash_to_embedding = (
+        {c["chunk_hash"]: old_embeddings[i] for i, c in enumerate(old_chunks)}
+        if old_chunks
+        else {}
+    )
 
+    new_embeddings_list = []
+    new_chunks_list = []
     pbar = tqdm(all_chunks, desc="Embedding chunks", unit="chunk")
 
     for chunk_dict in pbar:
-        embeddings_list.append(get_embedding(chunk_dict["text"]))
-        # pbar.set_description(f"{chunk_dict['source']}, {chunk_dict['page']}")
+        h = chunk_dict["chunk_hash"]
+        if h in hash_to_embedding:
+            # reuse embedding
+            emb = hash_to_embedding[h]
+        else:
+            # compute new embedding
+            emb = get_embedding(chunk_dict["text"])
+            if index is None:
+                index = faiss.IndexFlatIP(emb.shape[0])
+            else:
+                # add the embedding incrementally
+                index.add(emb.reshape(1, -1))
+        new_embeddings_list.append(emb)
+        new_chunks_list.append(chunk_dict)
 
-    embeddings = np.array(embeddings_list, dtype=np.float32)
+    embeddings = np.array(new_embeddings_list, dtype=np.float32)
     faiss.normalize_L2(embeddings)
-    index = faiss.IndexFlatIP(embeddings.shape[1])
-    index.add(embeddings)
-    faiss.write_index(index, os.path.join(index_path, "index.faiss"))
-    np.save(os.path.join(index_path, "embeddings.npy"), embeddings)
-    with open(os.path.join(index_path, "chunks.json"), "w", encoding="utf-8") as f:
-        json.dump(all_chunks, f, indent=4, ensure_ascii=False)
+
+    # If we didn't already add embeddings incrementally, add all now
+    if index is None:
+        index = faiss.IndexFlatIP(embeddings.shape[1])
+        index.add(embeddings)
+
+    # Save updated index, embeddings, and chunks
+    faiss.write_index(index, index_file)
+    np.save(embeddings_file, embeddings)
+    with open(chunks_file, "w", encoding="utf-8") as f:
+        json.dump(new_chunks_list, f, indent=4, ensure_ascii=False)
+
+    # Update folder checksum
     write_checksum(index_path, checksum_folder(folder))
-    print(f"FAISS index built with {len(all_chunks)} chunks.", flush=True)
-    return all_chunks, index, embeddings
+    print(
+        f"FAISS index built/incrementally updated with {len(new_chunks_list)} chunks.",
+        flush=True,
+    )
+    return new_chunks_list, index, embeddings
 
 
 def load_faiss_index(
@@ -405,16 +463,36 @@ def load_faiss_index(
 def load_or_build_index(
     folder: str = "docs",
 ) -> tuple[list[dict], faiss.Index, np.ndarray]:
+    """
+    Load existing FAISS index if it exists and matches checksum.
+    If the docs have changed, start a background thread to incrementally
+    embed new/modified chunks while returning the current index immediately.
+    """
     index_path = os.path.join(folder, "faiss_index")
     index_file = os.path.join(index_path, "index.faiss")
+    checksum_file = os.path.join(index_path, "docs_checksum.txt")
+
+    os.makedirs(index_path, exist_ok=True)
+
+    # Load existing index if present
     if os.path.exists(index_file):
-        current = checksum_folder(folder)
-        stored = read_stored_checksum(index_path)
-        if current != stored:
-            print("Docs folder has changed — rebuilding FAISS index...", flush=True)
-            return build_faiss_index(folder)
-        print("Loading existing FAISS index...", flush=True)
-        return load_faiss_index(index_path)
+        current_checksum = checksum_folder(folder)
+        stored_checksum = read_stored_checksum(index_path)
+
+        chunks, index, embeddings = load_faiss_index(index_path)
+        if current_checksum != stored_checksum:
+            print("Docs changed — updating FAISS index in background...", flush=True)
+
+            def update_index_bg():
+                build_faiss_index(folder)
+                print("Background FAISS update complete.", flush=True)
+
+            threading.Thread(target=update_index_bg, daemon=True).start()
+        else:
+            print("Loaded existing FAISS index.", flush=True)
+        return chunks, index, embeddings
+
+    # No index exists — build immediately
     print("No FAISS index found — building from documents...", flush=True)
     return build_faiss_index(folder)
 

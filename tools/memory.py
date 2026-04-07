@@ -11,7 +11,7 @@ the cache. This avoids replaying the full log on startup while still
 restoring any session on demand.
 """
 
-MAX_TURNS = int(os.getenv("MEMORY_MAX_TURNS", "25"))
+MAX_TURNS = int(os.getenv("MEMORY_MAX_TURNS", "5"))
 LOG_FILE = os.getenv("LOG_FILE", os.path.join("logs", "requests.jsonl"))
 
 _lock = threading.Lock()

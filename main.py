@@ -156,7 +156,6 @@ async def lifespan(app: FastAPI):
 
     INDEX_READY = True
 
-    print(f"Ready — {len(chunks)} chunks indexed.", flush=True)
     yield
 
 
