@@ -6,6 +6,7 @@ from math import radians, sin, cos, asin, sqrt
 class HaversineTool(Tool):
     name = "haversine"
     description = "Calculate the Haversine distance between two geographic coordinates from a natural language prompt."
+    direct_response = True
 
     def run(self, query: str, app, **kwargs):
         """
