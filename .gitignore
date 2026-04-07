@@ -36,4 +36,5 @@ docs/*.pdf
 *.json
 *.npy
 *.faiss
+history/
 logs/

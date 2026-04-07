@@ -24,7 +24,7 @@ pandas or any log aggregator.  Rotate it externally (logrotate, a cron job,
 etc.) — this module never deletes or truncates the file itself.
 """
 
-LOG_FILE = os.getenv("LOG_FILE", os.path.join("logs", "requests.jsonl"))
+LOG_FILE = os.getenv("LOG_FILE", os.path.join("history", "history.jsonl"))
 
 _lock = threading.Lock()
 
