@@ -60,12 +60,6 @@ if ! health_ready; then
     kill "$TAIL_PID" 2>/dev/null
     wait "$TAIL_PID" 2>/dev/null
 
-    if [[ $ready -eq 0 ]]; then
-        echo -e "${RED}Server did not become ready in time — check $LOG_FILE${RESET}"
-        kill "$SERVER_PID" 2>/dev/null
-        exit 1
-    fi
-
     # echo -e "${DIM}Server ready.${RESET}"
 else
     echo -e "${DIM}Server already running at $API_URL${RESET}"
