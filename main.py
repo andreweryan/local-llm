@@ -9,7 +9,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 
 from tools import logger
-from tools import memory as mem
 from tools.registry import TOOLS
 from tools.rag import load_or_build_index
 
@@ -121,7 +120,7 @@ def call_ollama(messages: list[dict], format_json: bool = False) -> str:
     return r.json()["message"]["content"]
 
 
-def rewrite_query(prompt: str, history: list[dict]) -> str:
+def rewrite_query(prompt: str, history: str = "") -> str:
     if not history:
         return prompt
     try:
@@ -201,9 +200,7 @@ def _run_tool_step(
 def _commit(
     session_id, prompt, answer, rewritten_query, router_tools, sources, t_start
 ):
-    if session_id:
-        mem.append(session_id, "user", prompt)
-        mem.append(session_id, "assistant", answer)
+
     logger.log(
         session_id=session_id,
         raw_prompt=prompt,
@@ -221,7 +218,7 @@ def generate(req: PromptRequest):
 
     t_start = time.monotonic()
     session_id = req.session_id or str(uuid.uuid4())
-    history = mem.get(session_id)
+    history = ""
     rewritten_query = rewrite_query(req.prompt, history)
 
     try:
@@ -350,17 +347,6 @@ def generate(req: PromptRequest):
         session_id=session_id,
         rewritten_query=rewritten_query,
     )
-
-
-@app.get("/memory/{session_id}")
-def get_memory(session_id: str):
-    return {"session_id": session_id, "history": mem.get(session_id)}
-
-
-@app.delete("/memory/{session_id}")
-def clear_memory(session_id: str):
-    mem.clear(session_id)
-    return {"session_id": session_id, "cleared": True}
 
 
 @app.get("/health")

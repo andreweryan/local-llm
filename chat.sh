@@ -4,11 +4,9 @@
 SESSION="${1:-$(python3 -c 'import uuid; print(uuid.uuid4())')}"
 DOCS_FOLDER="${2:-10}"
 TOP_K="${3:-10}"
-MAX_TURNS="${4:-5}" # default 5 if not provided
 API_URL="http://localhost:8000"  # always local
 export SESSION_ID="$SESSION"
 export DOCS_FOLDER="$DOCS_FOLDER"
-export MEMORY_MAX_TURNS="$MAX_TURNS"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE=$SCRIPT_DIR/logs/server.log
@@ -38,11 +36,7 @@ health_ready() {
 if ! health_ready; then
     echo -e "${DIM}Server not running — starting main.py...${RESET}"
 
-    if [[ -n "$MAX_TURNS" ]]; then
-        MEMORY_MAX_TURNS="$MAX_TURNS" python3 -u "$SCRIPT_DIR/main.py" >"$LOG_FILE" 2>&1 &
-    else
-        python3 -u "$SCRIPT_DIR/main.py" >"$LOG_FILE" 2>&1 &
-    fi
+    python3 -u "$SCRIPT_DIR/main.py" >"$LOG_FILE" 2>&1 &
 
     SERVER_PID=$!
 
@@ -99,8 +93,7 @@ trap cleanup EXIT INT TERM
 # ---------------------------------------------------------------------------
 
 echo -e "${DIM}session name: $SESSION${RESET}"
-echo -e "${DIM}restored last $MAX_TURNS${RESET} ${DIM}prompts"
-echo -e "${DIM}Commands: exit | sources | clear | session${RESET}"
+echo -e "${DIM}Commands: exit | sources | session${RESET}"
 echo -e "${DIM}────────────────────────────────────────────────────${RESET}"
 
 LAST_SOURCES=""
@@ -126,11 +119,6 @@ for i, s in enumerate(sources, 1):
     print(f"  {i}. {s['source']}{page}  [score: {score}]")
 EOF
             fi
-            continue
-            ;;
-        clear)
-            curl -s -X DELETE "$API_URL/memory/$SESSION" >/dev/null
-            echo -e "${DIM}Memory cleared.${RESET}"
             continue
             ;;
         session)
