@@ -4,9 +4,9 @@ import threading
 from datetime import datetime, timezone
 
 """
-Structured JSONL request logger.
+Structured JSONL logger of LLM prompt/response.
 
-Each request appends one JSON line to LOG_FILE (default: logs/requests.jsonl).
+Each request appends one JSON line to LOG_FILE (default: history/history.jsonl).
 Fields logged per request:
 
   ts            ISO-8601 UTC timestamp
@@ -16,6 +16,7 @@ Fields logged per request:
   router_tools  list of tool names the router selected
   sources       list of {source, page, rerank_score} for RAG results
   response      final answer text
+  model         model name
   latency_ms    wall-clock ms for the whole /generate call
   error         error message string, or null
 
@@ -25,6 +26,7 @@ etc.) — this module never deletes or truncates the file itself.
 """
 
 LOG_FILE = os.getenv("LOG_FILE", os.path.join("history", "history.jsonl"))
+MODEL = os.getenv("MODEL")
 
 _lock = threading.Lock()
 
@@ -51,7 +53,6 @@ def log(
         "raw_prompt": raw_prompt,
         "rewritten_query": rewritten_query,
         "router_tools": router_tools,
-        # Keep sources compact — full chunk text is already in the response
         "sources": [
             {
                 "source": s.get("source"),
@@ -62,6 +63,7 @@ def log(
             for s in sources
         ],
         "response": response,
+        "model": MODEL,
         "latency_ms": round(latency_ms, 1),
         "error": error,
     }
