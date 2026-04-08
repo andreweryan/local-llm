@@ -5,8 +5,12 @@ SESSION="${1:-$(python3 -c 'import uuid; print(uuid.uuid4())')}"
 DOCS_FOLDER="${2:-10}"
 TOP_K="${3:-10}"
 API_URL="http://localhost:8000"  # always local
+MODEL="gemma4:latest" # gemma4 | llama3
+export MODEL="$MODEL"
 export SESSION_ID="$SESSION"
 export DOCS_FOLDER="$DOCS_FOLDER"
+export TOP_K="$TOP_K"
+
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE=$SCRIPT_DIR/logs/server.log

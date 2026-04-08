@@ -1,8 +1,9 @@
 # Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Pull llama3
+# Pull models
 ollama pull llama3
+ollama pull gemma4:latest
 
 # Pull text embedding models
 ollama pull mxbai-embed-large
@@ -18,6 +19,3 @@ pip install -e .
 
 # Make RAG documents directory
 mkdir docs
-
-# Make Faiss directory
-mkdir faiss_index

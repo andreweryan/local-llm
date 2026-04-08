@@ -14,7 +14,7 @@ from .base import Tool
 logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3:latest")
+OLLAMA_MODEL = os.getenv("MODEL")
 
 EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "mxbai-embed-large")
 EMBED_DIM = os.getenv("OLLAMA_EMBED_MODEL_DIMS", "1024")

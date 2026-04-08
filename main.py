@@ -14,8 +14,8 @@ from tools.rag import load_or_build_index
 
 DOCS_FOLDER = os.getenv("DOCS_FOLDER", "docs")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3:latest")
-RAG_TOP_K = int(os.getenv("RAG_TOP_K", "10000"))
+OLLAMA_MODEL = os.getenv("MODEL", "gemma4:latest")
+RAG_TOP_K = int(os.getenv("TOP_K", "100"))
 INDEX_READY = False
 
 ROUTER_PROMPT = """
@@ -49,6 +49,7 @@ Return JSON only — one of these three shapes:
 Always use the "tools" array shape. Never wrap the array in anything else.
 """
 
+
 REWRITE_PROMPT = """
 You are a query rewriter for a retrieval-augmented search system.
 
@@ -62,6 +63,7 @@ Rules:
 - Never answer the question; only rewrite it.
 - Keep the rewrite concise (one or two sentences at most).
 """
+
 
 ANSWER_SYSTEM_PROMPT = """
 You are an expert research assistant helping a user conduct deep technical research.
@@ -120,6 +122,29 @@ def call_ollama(messages: list[dict], format_json: bool = False) -> str:
     return r.json()["message"]["content"]
 
 
+def check_model_ready() -> bool:
+    try:
+        # Send a simple test prompt to the model using call_ollama
+        test_message = [{"role": "system", "content": "Test"}]
+        call_ollama(test_message)
+        return True
+    except (requests.exceptions.RequestException, KeyError, ValueError) as e:
+        # If any error occurs, the model might not be ready or is inaccessible
+        return False
+
+
+def download_ollama_model(model: str):
+    try:
+        result = subprocess.run(
+            ["ollama", "pull", model], capture_output=True, text=True, check=True
+        )
+        print(f"Model {model} downloaded successfully.")
+        print(result.stdout)
+    except subprocess.CalledProcessError as e:
+        print(f"Error downloading model: {e.stderr}")
+        raise RuntimeError(f"Model download failed: {e.stderr}")
+
+
 def rewrite_query(prompt: str, history: str = "") -> str:
     if not history:
         return prompt
@@ -147,6 +172,10 @@ async def lifespan(app: FastAPI):
         print("WARNING: Ollama not reachable.", flush=True)
     else:
         print("Ollama is up.", flush=True)
+
+        if not check_model_ready():
+            print(f"Downloading '{OLLAMA_MODEL}'...")
+            download_ollama_model(OLLAMA_MODEL)
 
     chunks, index, _ = load_or_build_index(DOCS_FOLDER)
 
