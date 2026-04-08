@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # chat.sh — terminal chat client for local-llm API
 
-SESSION="${1:-$(python3 -c 'import uuid; print(uuid.uuid4())')}"
-DOCS_FOLDER="${2:-10}"
-TOP_K="${3:-10}"
 API_URL="http://localhost:8000"  # always local
-MODEL="gemma4:latest" # gemma4 | llama3
+SESSION="${1:-$(python3 -c 'import uuid; print(uuid.uuid4())')}" # Session Name. Default to uuid if not set.
+DOCS_FOLDER="${2:-docs}"           # RAG documents folder. Default to "docs" if the second argument is not set.
+TOP_K="${3:-10}"                   # Top K similar chunks. Default to 10 if the third argument is not set.
+MODEL="${4:-gemma4:latest}"        # Model to use. Default to "gemma4:latest" if the model name is not provided.
+
 export MODEL="$MODEL"
 export SESSION_ID="$SESSION"
 export DOCS_FOLDER="$DOCS_FOLDER"

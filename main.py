@@ -13,9 +13,9 @@ from tools.registry import TOOLS
 from tools.rag import load_or_build_index
 
 DOCS_FOLDER = os.getenv("DOCS_FOLDER", "docs")
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("MODEL", "gemma4:latest")
-RAG_TOP_K = int(os.getenv("TOP_K", "100"))
+HOST = os.getenv("HOST", "http://localhost:11434")
+MODEL = os.getenv("MODEL", "gemma4:latest")
+TOP_K = int(os.getenv("TOP_K", "100"))
 INDEX_READY = False
 
 ROUTER_PROMPT = """
@@ -114,10 +114,10 @@ def wait_for_ollama(host: str, timeout: int = 10) -> bool:
 
 
 def call_ollama(messages: list[dict], format_json: bool = False) -> str:
-    payload = {"model": OLLAMA_MODEL, "stream": False, "messages": messages}
+    payload = {"model": MODEL, "stream": False, "messages": messages}
     if format_json:
         payload["format"] = "json"
-    r = requests.post(f"{OLLAMA_HOST}/api/chat", json=payload, timeout=120)
+    r = requests.post(f"{HOST}/api/chat", json=payload, timeout=120)
     r.raise_for_status()
     return r.json()["message"]["content"]
 
@@ -168,14 +168,14 @@ def rewrite_query(prompt: str, history: str = "") -> str:
 async def lifespan(app: FastAPI):
     global INDEX_READY
 
-    if not wait_for_ollama(OLLAMA_HOST, timeout=10):
+    if not wait_for_ollama(HOST, timeout=10):
         print("WARNING: Ollama not reachable.", flush=True)
     else:
         print("Ollama is up.", flush=True)
-
+        print(f"Using {MODEL}")
         if not check_model_ready():
-            print(f"Downloading '{OLLAMA_MODEL}'...")
-            download_ollama_model(OLLAMA_MODEL)
+            print(f"Model not downloaded. Downloading '{MODEL}'...")
+            download_ollama_model(MODEL)
 
     chunks, index, _ = load_or_build_index(DOCS_FOLDER)
 
@@ -192,7 +192,7 @@ app = FastAPI(lifespan=lifespan)
 
 class PromptRequest(BaseModel):
     prompt: str
-    top_k: int = RAG_TOP_K
+    top_k: int = TOP_K
     session_id: Optional[str] = Field(
         default=None,
         description="Opaque session identifier for conversation memory.",
@@ -380,7 +380,7 @@ def generate(req: PromptRequest):
 
 @app.get("/health")
 def health():
-    ollama_ok = wait_for_ollama(OLLAMA_HOST, timeout=2)
+    ollama_ok = wait_for_ollama(HOST, timeout=2)
 
     return {
         "status": "ok" if (ollama_ok and INDEX_READY) else "starting",

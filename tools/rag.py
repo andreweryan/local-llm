@@ -13,8 +13,8 @@ from .base import Tool
 
 logging.getLogger("pypdf").setLevel(logging.ERROR)
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("MODEL")
+HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+MODEL = os.getenv("MODEL")
 
 EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "mxbai-embed-large")
 EMBED_DIM = os.getenv("OLLAMA_EMBED_MODEL_DIMS", "1024")
@@ -84,9 +84,9 @@ def rerank(query: str, candidates: list[dict], top_n: int = RERANK_TOP_N) -> lis
         passage = c["text"][:800]  # keep prompts short
         try:
             r = requests.post(
-                f"{OLLAMA_HOST}/api/chat",
+                f"{HOST}/api/chat",
                 json={
-                    "model": OLLAMA_MODEL,
+                    "model": MODEL,
                     "stream": False,
                     "format": "json",
                     "messages": [
@@ -294,7 +294,7 @@ def get_embedding(text: str) -> np.ndarray:
         text = text[: EMBED_TOKEN_LIMIT * 4]
 
     response = requests.post(
-        f"{OLLAMA_HOST}/api/embed",
+        f"{HOST}/api/embed",
         json={"model": EMBED_MODEL, "input": text},
         timeout=60,
     )
@@ -415,7 +415,7 @@ def load_or_build_index(
         if current != stored:
             print("Docs folder has changed — rebuilding FAISS index...", flush=True)
             return build_faiss_index(folder)
-        print(f"Loading existing FAISS index from {Path(folder).resolve()}", flush=True)
+        print(f"Loading FAISS index from {Path(index_path).resolve()}", flush=True)
         return load_faiss_index(index_path)
     print("No FAISS index found — building from documents...", flush=True)
     return build_faiss_index(folder)
