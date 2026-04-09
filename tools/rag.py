@@ -8,10 +8,13 @@ import requests
 import numpy as np
 from tqdm import tqdm
 from pypdf import PdfReader
+from tools.logger import get_logger
 
 from .base import Tool
 
 logging.getLogger("pypdf").setLevel(logging.ERROR)
+logger = get_logger(__name__)
+logger.propagate = False
 
 HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL = os.getenv("MODEL")
@@ -300,7 +303,6 @@ def get_embedding(text: str) -> np.ndarray:
     )
 
     if response.status_code == 400:
-        # print(f"[embed] Skipping bad chunk (len={len(text)}): {text[:80]!r}", flush=True)
         # Return a zero vector — FAISS will score it at 0 after normalization
         # so it will never surface in search results
         dim = int(EMBED_DIM)  # output dimension
@@ -366,9 +368,8 @@ def build_faiss_index(
                         "is_reference": is_references_chunk(chunk),
                     }
                 )
-    print(
-        f"Chunking complete — {len(all_chunks)} chunks to embed ({skipped} skipped).",
-        flush=True,
+    logger.info(
+        f"Chunking complete — {len(all_chunks)} chunks to embed ({skipped} skipped)."
     )
 
     embeddings_list: list[np.ndarray] = []
@@ -388,7 +389,7 @@ def build_faiss_index(
     with open(os.path.join(index_path, "chunks.json"), "w", encoding="utf-8") as f:
         json.dump(all_chunks, f, indent=4, ensure_ascii=False)
     write_checksum(index_path, checksum_folder(folder))
-    print(f"FAISS index built with {len(all_chunks)} chunks.", flush=True)
+    logger.info(f"FAISS index built with {len(all_chunks)} chunks.")
     return all_chunks, index, embeddings
 
 
@@ -413,11 +414,11 @@ def load_or_build_index(
         current = checksum_folder(folder)
         stored = read_stored_checksum(index_path)
         if current != stored:
-            print("Docs folder has changed — rebuilding FAISS index...", flush=True)
+            logger.info("Docs folder has changed — rebuilding FAISS index...")
             return build_faiss_index(folder)
-        print(f"Loading FAISS index from {Path(index_path).resolve()}", flush=True)
+        logger.info(f"Loading FAISS index from {Path(index_path).resolve()}")
         return load_faiss_index(index_path)
-    print("No FAISS index found — building from documents...", flush=True)
+    logger.info("No FAISS index found — building from documents...")
     return build_faiss_index(folder)
 
 

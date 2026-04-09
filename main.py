@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 
-from tools import logger
+from tools.logger import get_logger, log_chat
 from tools.registry import TOOLS
 from tools.rag import load_or_build_index
 
@@ -17,6 +17,9 @@ HOST = os.getenv("HOST", "http://localhost:11434")
 MODEL = os.getenv("MODEL", "gemma4:latest")
 TOP_K = int(os.getenv("TOP_K", "100"))
 INDEX_READY = False
+
+logger = get_logger(__name__)
+logger.propagate = False
 
 ROUTER_PROMPT = """
 You are an AI tool router.
@@ -138,10 +141,9 @@ def download_ollama_model(model: str):
         result = subprocess.run(
             ["ollama", "pull", model], capture_output=True, text=True, check=True
         )
-        print(f"Model {model} downloaded successfully.")
-        print(result.stdout)
+        logger.info(f"Model {model} downloaded successfully.")
     except subprocess.CalledProcessError as e:
-        print(f"Error downloading model: {e.stderr}")
+        logger.info(f"Error downloading model: {e.stderr}")
         raise RuntimeError(f"Model download failed: {e.stderr}")
 
 
@@ -160,7 +162,7 @@ def rewrite_query(prompt: str, history: str = "") -> str:
             return prompt
         return rewritten
     except Exception as exc:
-        print(f"[rewrite] Fell back to raw prompt: {exc}", flush=True)
+        logger.info(f"[rewrite] Fell back to raw prompt: {exc}")
         return prompt
 
 
@@ -169,12 +171,12 @@ async def lifespan(app: FastAPI):
     global INDEX_READY
 
     if not wait_for_ollama(HOST, timeout=10):
-        print("WARNING: Ollama not reachable.", flush=True)
+        logger.info("WARNING: Ollama not reachable.")
     else:
-        print("Ollama is up.", flush=True)
-        print(f"Using {MODEL}")
+        logger.info("Ollama is up.")
+        logger.info(f"Using {MODEL}")
         if not check_model_ready():
-            print(f"Model not downloaded. Downloading '{MODEL}'...")
+            logger.info(f"Model not downloaded. Downloading '{MODEL}'...")
             download_ollama_model(MODEL)
 
     chunks, index, _ = load_or_build_index(DOCS_FOLDER)
@@ -230,7 +232,7 @@ def _commit(
     session_id, prompt, answer, rewritten_query, router_tools, sources, t_start
 ):
 
-    logger.log(
+    log_chat(
         session_id=session_id,
         raw_prompt=prompt,
         rewritten_query=rewritten_query,
@@ -261,7 +263,7 @@ def generate(req: PromptRequest):
         )
         decision = json.loads(router_output)
     except Exception as e:
-        logger.log(
+        log_chat(
             session_id=session_id,
             raw_prompt=req.prompt,
             rewritten_query=rewritten_query,

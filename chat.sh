@@ -41,12 +41,12 @@ health_ready() {
 if ! health_ready; then
     echo -e "${DIM}Server not running — starting main.py...${RESET}"
 
-    python3 -u "$SCRIPT_DIR/main.py" >"$LOG_FILE" 2>&1 &
+    python3 -u "$SCRIPT_DIR/main.py" &
 
     SERVER_PID=$!
 
-    echo -e "${DIM}Server PID: $SERVER_PID  |  logs: $LOG_FILE${RESET}"
-    echo -e "${DIM}Waiting for server to be ready...${RESET}"
+    echo -e "${WHITE}Server PID: $SERVER_PID${RESET}  |  ${DIM}logs: $LOG_FILE${RESET}"
+    echo -e "${YELLOW}Waiting for server to be ready...${RESET}"
 
     ready=0
     for _ in $(seq 1 600); do  # up to 10 minutes
@@ -65,7 +65,7 @@ if ! health_ready; then
     kill "$TAIL_PID" 2>/dev/null
     wait "$TAIL_PID" 2>/dev/null
 
-    # echo -e "${DIM}Server ready.${RESET}"
+    echo -e "${GREEN}Server ready.${RESET}"
 else
     echo -e "${DIM}Server already running at $API_URL${RESET}"
 fi
@@ -78,7 +78,7 @@ cleanup() {
     trap - EXIT INT TERM
     echo ""
     if [[ -n "$SERVER_PID" ]]; then
-        echo -e "${DIM}Stopping server (PID $SERVER_PID)...${RESET}"
+        echo -e "${RED}Stopping server (PID $SERVER_PID)...${RESET}"
         kill "$SERVER_PID" 2>/dev/null
         wait "$SERVER_PID" 2>/dev/null
     fi
@@ -91,7 +91,7 @@ trap cleanup EXIT INT TERM
 # Chat UI
 # ---------------------------------------------------------------------------
 
-echo -e "${DIM}session name: $SESSION${RESET}"
+echo -e "${DIM}session name${RESET}: ${WHITE}$SESSION${RESET}"
 echo -e "${DIM}Commands: exit | sources | session${RESET}"
 echo -e "${DIM}────────────────────────────────────────────────────${RESET}"
 
