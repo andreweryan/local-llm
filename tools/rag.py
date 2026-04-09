@@ -476,14 +476,14 @@ def build_index(folder: str = "docs") -> chromadb.Collection:
     collection = get_collection(index_path)
     all_chunks = _collect_chunks(folder)
 
-    ids, embeddings, metadata, documents = [], [], [], []
+    ids, embeddings, metadatas, documents = [], [], [], []
 
     for chunk_i, c in enumerate(tqdm(all_chunks, desc="Embedding", unit="chunk")):
         vec = get_embedding(c["text"])
         ids.append(_chunk_id(c["source"], c["page"], chunk_i))
         embeddings.append(vec.tolist())
         documents.append(c["text"])
-        metadata.append(
+        metadatas.append(
             {
                 "source": c["source"],
                 "page": c["page"] if c["page"] is not None else -1,
@@ -501,7 +501,7 @@ def build_index(folder: str = "docs") -> chromadb.Collection:
             ids=ids[sl],
             embeddings=embeddings[sl],
             documents=documents[sl],
-            metadata=metadata[sl],
+            metadatas=metadatas[sl],
         )
 
     write_checksum(index_path, checksum_folder(folder))
@@ -547,7 +547,7 @@ def add_document(source_path: str, collection: chromadb.Collection) -> int:
             text = clean_text(f.read())
         pages = [{"text": text, "page": None, "source": filename}]
 
-    ids, embeddings, metadata, documents = [], [], [], []
+    ids, embeddings, metadatas, documents = [], [], [], []
     chunk_i = 0
 
     for page_info in pages:
@@ -563,7 +563,7 @@ def add_document(source_path: str, collection: chromadb.Collection) -> int:
             ids.append(_chunk_id(filename, page_info["page"], chunk_i))
             embeddings.append(vec.tolist())
             documents.append(chunk)
-            metadata.append(
+            metadatas.append(
                 {
                     "source": filename,
                     "page": page_info["page"] if page_info["page"] is not None else -1,
@@ -578,7 +578,7 @@ def add_document(source_path: str, collection: chromadb.Collection) -> int:
 
     if ids:
         collection.upsert(
-            ids=ids, embeddings=embeddings, documents=documents, metadata=metadata
+            ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas
         )
 
     logger.info(f"Added {len(ids)} chunks for '{filename}'.")
@@ -613,13 +613,13 @@ def search(
     results = collection.query(
         query_embeddings=[q_emb.tolist()],
         n_results=top_k,
-        include=["documents", "metadata", "distances"],
+        include=["documents", "metadatas", "distances"],
     )
 
     chunks = []
     for doc, meta, dist in zip(
         results["documents"][0],
-        results["metadata"][0],
+        results["metadatas"][0],
         results["distances"][0],
     ):
         score = 1.0 - dist / 2.0
