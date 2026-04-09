@@ -91,7 +91,7 @@ trap cleanup EXIT INT TERM
 # Chat UI
 # ---------------------------------------------------------------------------
 
-echo -e "${DIM}session name${RESET}: ${WHITE}$SESSION${RESET}"
+echo -e "${DIM}session name: $SESSION${RESET}"
 echo -e "${DIM}Commands: exit | sources | session${RESET}"
 echo -e "${DIM}────────────────────────────────────────────────────${RESET}"
 
