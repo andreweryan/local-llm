@@ -28,6 +28,7 @@ CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 100))
 MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.1"))
 MAX_PER_SOURCE_PAGE = int(os.getenv("RAG_MAX_PER_SOURCE_PAGE", "3"))
+TOP_K = int(os.getenv("TOP_K", "10"))
 RERANK_TOP_N = int(os.getenv("RAG_RERANK_TOP_N", "5"))
 
 RERANK_PROMPT = """\
@@ -607,6 +608,7 @@ def search(
     min_score: float = MIN_SCORE,
 ) -> list[dict]:
     q_emb = get_embedding(query)
+
     # Chroma cosine distance: 0 = identical, 2 = opposite.
     # Convert to a similarity in [0, 1]: similarity = 1 - distance/2
     results = collection.query(
@@ -645,7 +647,7 @@ class RAGTool(Tool):
     description = "Search internal documents for relevant context."
 
     def run(self, query: str, app, **kwargs) -> tuple[str, list]:
-        top_k = kwargs.get("top_k", 10)
+        top_k = kwargs.get("top_k", TOP_K)
         rerank_top_n = kwargs.get("rerank_top_n", RERANK_TOP_N)
         collection = app.state.collection  # ← was chunks + index
 
