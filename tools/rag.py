@@ -9,6 +9,8 @@ import numpy as np
 from tqdm import tqdm
 from pypdf import PdfReader
 from tools.logger import get_logger
+import chromadb
+from chromadb.config import Settings
 
 from .base import Tool
 
@@ -16,11 +18,11 @@ logging.getLogger("pypdf").setLevel(logging.ERROR)
 logger = get_logger(__name__)
 logger.propagate = False
 
-HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+HOST = os.getenv("HOST", "http://localhost:11434")
 MODEL = os.getenv("MODEL")
 
-EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "mxbai-embed-large")
-EMBED_DIM = os.getenv("OLLAMA_EMBED_MODEL_DIMS", "1024")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "mxbai-embed-large")
+EMBED_DIM = os.getenv("EMBED_MODEL_DIMS", "1024")
 EMBED_TOKEN_LIMIT = int(os.getenv("EMBED_TOKEN_LIMIT", "460"))
 
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))
@@ -41,6 +43,18 @@ Examples of valid responses:
 """
 
 _SCORE_RE = re.compile(r'"score"\s*:\s*(\d+)')
+
+
+def get_collection(index_path: str) -> chromadb.Collection:
+    """Return (creating if needed) the persistent Chroma collection."""
+    client = chromadb.PersistentClient(
+        path=index_path,
+        settings=Settings(anonymized_telemetry=False),
+    )
+    return client.get_or_create_collection(
+        name="rag",
+        metadata={"hnsw:space": "cosine"},  # cosine ~ your normalised IP
+    )
 
 
 def _extract_score(raw: str) -> float:
@@ -286,142 +300,6 @@ def chunk_text(
     return chunks, False
 
 
-def get_embedding(text: str) -> np.ndarray:
-    # Hard truncate to stay within mxbai-embed-large's 512-token window.
-    # 4 chars/token estimate; truncate before sending rather than letting
-    # Ollama reject it with a 400.
-    text = text.strip()
-    if not text:
-        text = "empty"
-    if len(text) > EMBED_TOKEN_LIMIT * 4:
-        text = text[: EMBED_TOKEN_LIMIT * 4]
-
-    response = requests.post(
-        f"{HOST}/api/embed",
-        json={"model": EMBED_MODEL, "input": text},
-        timeout=60,
-    )
-
-    if response.status_code == 400:
-        # Return a zero vector — FAISS will score it at 0 after normalization
-        # so it will never surface in search results
-        dim = int(EMBED_DIM)  # output dimension
-        return np.zeros(dim, dtype=np.float32)
-    response.raise_for_status()
-    return np.array(response.json()["embeddings"][0], dtype=np.float32)
-
-
-def checksum_folder(folder: str) -> str:
-    h = hashlib.md5()
-    for filename in sorted(os.listdir(folder)):
-        path = os.path.join(folder, filename)
-        if os.path.isfile(path):
-            h.update(filename.encode())
-            h.update(str(os.path.getmtime(path)).encode())
-            h.update(str(os.path.getsize(path)).encode())
-    return h.hexdigest()
-
-
-def read_stored_checksum(index_path: str) -> str | None:
-    checksum_file = os.path.join(index_path, "docs_checksum.txt")
-    if os.path.exists(checksum_file):
-        with open(checksum_file) as f:
-            return f.read().strip()
-    return None
-
-
-def write_checksum(index_path: str, checksum: str) -> None:
-    with open(os.path.join(index_path, "docs_checksum.txt"), "w") as f:
-        f.write(checksum)
-
-
-def build_faiss_index(
-    folder: str = "docs",
-) -> tuple[list[dict], faiss.Index, np.ndarray]:
-    index_path = os.path.join(folder, "faiss_index")
-    os.makedirs(index_path, exist_ok=True)
-    raw_docs = load_documents(folder)
-    all_chunks: list[dict] = []
-    skipped = 0
-    for doc_pages in raw_docs:
-        for page_info in doc_pages:
-            page_chunks, from_headings = chunk_text(page_info["text"])
-            min_words = 2 if from_headings else 5
-            for chunk_i, chunk in enumerate(page_chunks):
-                if len(chunk.split()) < min_words:
-                    skipped += 1
-                    continue
-                non_numeric = [
-                    w for w in chunk.split() if not re.match(r"^[\d.%,\-]+$", w)
-                ]
-                if len(non_numeric) / max(len(chunk.split()), 1) < 0.3:
-                    skipped += 1
-                    continue
-                real_page = page_info["page"]
-                all_chunks.append(
-                    {
-                        "text": chunk,
-                        "source": page_info["source"],
-                        "page": real_page,
-                        "dedup_key": real_page if real_page is not None else chunk_i,
-                        "from_headings": from_headings,
-                        "is_reference": is_references_chunk(chunk),
-                    }
-                )
-    logger.info(
-        f"Chunking complete — {len(all_chunks)} chunks to embed ({skipped} skipped)."
-    )
-
-    embeddings_list: list[np.ndarray] = []
-
-    pbar = tqdm(all_chunks, desc="Embedding chunks", unit="chunk")
-
-    for chunk_dict in pbar:
-        embeddings_list.append(get_embedding(chunk_dict["text"]))
-        # pbar.set_description(f"{chunk_dict['source']}, {chunk_dict['page']}")
-
-    embeddings = np.array(embeddings_list, dtype=np.float32)
-    faiss.normalize_L2(embeddings)
-    index = faiss.IndexFlatIP(embeddings.shape[1])
-    index.add(embeddings)
-    faiss.write_index(index, os.path.join(index_path, "index.faiss"))
-    np.save(os.path.join(index_path, "embeddings.npy"), embeddings)
-    with open(os.path.join(index_path, "chunks.json"), "w", encoding="utf-8") as f:
-        json.dump(all_chunks, f, indent=4, ensure_ascii=False)
-    write_checksum(index_path, checksum_folder(folder))
-    logger.info(f"FAISS index built with {len(all_chunks)} chunks.")
-    return all_chunks, index, embeddings
-
-
-def load_faiss_index(
-    index_path: str = "faiss_index",
-) -> tuple[list[dict], faiss.Index, np.ndarray]:
-    index = faiss.read_index(os.path.join(index_path, "index.faiss"))
-    embeddings = np.load(os.path.join(index_path, "embeddings.npy"))
-    with open(os.path.join(index_path, "chunks.json"), "r", encoding="utf-8") as f:
-        chunks = json.load(f)
-    return chunks, index, embeddings
-
-
-def load_or_build_index(
-    folder: str = "docs",
-) -> tuple[list[dict], faiss.Index, np.ndarray]:
-    from pathlib import Path
-
-    index_path = os.path.join(folder, "faiss_index")
-    index_file = os.path.join(index_path, "index.faiss")
-    if os.path.exists(index_file):
-        current = checksum_folder(folder)
-        stored = read_stored_checksum(index_path)
-        if current != stored:
-            logger.info("Docs folder has changed — rebuilding FAISS index...")
-            return build_faiss_index(folder)
-        logger.info(f"Loading FAISS index from {Path(index_path).resolve()}")
-        return load_faiss_index(index_path)
-    logger.info("No FAISS index found — building from documents...")
-    return build_faiss_index(folder)
-
-
 # Patterns that strongly indicate a chunk is from a references section.
 # Matched against the chunk text (case-insensitive).
 _REFERENCES_PATTERNS = [
@@ -499,24 +377,268 @@ def deduplicate(
     return result
 
 
+def get_embedding(text: str) -> np.ndarray:
+    # Hard truncate to stay within mxbai-embed-large's 512-token window.
+    # 4 chars/token estimate; truncate before sending rather than letting
+    # Ollama reject it with a 400.
+    text = text.strip()
+    if not text:
+        text = "empty"
+    if len(text) > EMBED_TOKEN_LIMIT * 4:
+        text = text[: EMBED_TOKEN_LIMIT * 4]
+
+    response = requests.post(
+        f"{HOST}/api/embed",
+        json={"model": EMBED_MODEL, "input": text},
+        timeout=60,
+    )
+
+    if response.status_code == 400:
+        # Return a zero vector — FAISS will score it at 0 after normalization
+        # so it will never surface in search results
+        dim = int(EMBED_DIM)  # output dimension
+        return np.zeros(dim, dtype=np.float32)
+    response.raise_for_status()
+    return np.array(response.json()["embeddings"][0], dtype=np.float32)
+
+
+def checksum_folder(folder: str) -> str:
+    h = hashlib.md5()
+    for filename in sorted(os.listdir(folder)):
+        path = os.path.join(folder, filename)
+        if os.path.isfile(path):
+            h.update(filename.encode())
+            h.update(str(os.path.getmtime(path)).encode())
+            h.update(str(os.path.getsize(path)).encode())
+    return h.hexdigest()
+
+
+def read_stored_checksum(index_path: str) -> str | None:
+    checksum_file = os.path.join(index_path, "docs_checksum.txt")
+    if os.path.exists(checksum_file):
+        with open(checksum_file) as f:
+            return f.read().strip()
+    return None
+
+
+def write_checksum(index_path: str, checksum: str) -> None:
+    with open(os.path.join(index_path, "docs_checksum.txt"), "w") as f:
+        f.write(checksum)
+
+
+# ── index management ──────────────────────────────────────────────────────────
+
+
+def _chunk_id(source: str, page: int | None, chunk_i: int) -> str:
+    """Stable, unique string ID for a chunk. Chroma requires string IDs."""
+    return f"{source}::p{page}::c{chunk_i}"
+
+
+def _collect_chunks(folder: str) -> list[dict]:
+    """Load documents, chunk, filter — returns (chunks, embeddings)."""
+    raw_docs = load_documents(folder)
+    all_chunks, skipped = [], 0
+
+    for doc_pages in raw_docs:
+        for page_info in doc_pages:
+            page_chunks, from_headings = chunk_text(page_info["text"])
+            min_words = 2 if from_headings else 5
+            for chunk_i, chunk in enumerate(page_chunks):
+                if len(chunk.split()) < min_words:
+                    skipped += 1
+                    continue
+                non_numeric = [
+                    w for w in chunk.split() if not re.match(r"^[\d.%,\-]+$", w)
+                ]
+                if len(non_numeric) / max(len(chunk.split()), 1) < 0.3:
+                    skipped += 1
+                    continue
+                real_page = page_info["page"]
+                all_chunks.append(
+                    {
+                        "text": chunk,
+                        "source": page_info["source"],
+                        "page": real_page,
+                        "dedup_key": real_page if real_page is not None else chunk_i,
+                        "from_headings": from_headings,
+                        "is_reference": is_references_chunk(chunk),
+                    }
+                )
+
+    logger.info(f"Chunking complete — {len(all_chunks)} chunks ({skipped} skipped).")
+    return all_chunks
+
+
+def build_index(folder: str = "docs") -> chromadb.Collection:
+    index_path = os.path.join(folder, "chroma_index")
+    os.makedirs(index_path, exist_ok=True)
+
+    collection = get_collection(index_path)
+    all_chunks = _collect_chunks(folder)
+
+    ids, embeddings, metadata, documents = [], [], [], []
+
+    for chunk_i, c in enumerate(tqdm(all_chunks, desc="Embedding", unit="chunk")):
+        vec = get_embedding(c["text"])
+        ids.append(_chunk_id(c["source"], c["page"], chunk_i))
+        embeddings.append(vec.tolist())
+        documents.append(c["text"])
+        metadata.append(
+            {
+                "source": c["source"],
+                "page": c["page"] if c["page"] is not None else -1,
+                "dedup_key": str(c["dedup_key"]),
+                "from_headings": int(c["from_headings"]),
+                "is_reference": int(c["is_reference"]),
+            }
+        )
+
+    # Upsert in batches — Chroma has a default batch limit of ~41k items
+    BATCH = 500
+    for start in range(0, len(ids), BATCH):
+        sl = slice(start, start + BATCH)
+        collection.upsert(
+            ids=ids[sl],
+            embeddings=embeddings[sl],
+            documents=documents[sl],
+            metadata=metadata[sl],
+        )
+
+    write_checksum(index_path, checksum_folder(folder))
+    logger.info(f"Chroma index built with {collection.count()} chunks.")
+    return collection
+
+
+def load_index(folder: str = "docs") -> chromadb.Collection:
+    index_path = os.path.join(folder, "chroma_index")
+    return get_collection(index_path)
+
+
+def load_or_build_index(folder: str = "docs") -> chromadb.Collection:
+    index_path = os.path.join(folder, "chroma_index")
+    chroma_db_file = os.path.join(index_path, "chroma.sqlite3")
+
+    if os.path.exists(chroma_db_file):
+        current = checksum_folder(folder)
+        stored = read_stored_checksum(index_path)
+        if current != stored:
+            logger.info("Docs folder changed — rebuilding index...")
+            return build_index(folder)
+        logger.info(f"Loading Chroma index from {index_path}")
+        return load_index(folder)
+
+    logger.info("No index found — building...")
+    return build_index(folder)
+
+
+# ── per-document add / remove ─────────────────────────────────────────────────
+
+
+def add_document(source_path: str, collection: chromadb.Collection) -> int:
+    """
+    Chunk and embed a single file, upsert into the existing collection.
+    Returns the number of chunks added.
+    """
+    filename = os.path.basename(source_path)
+    if source_path.endswith(".pdf"):
+        pages = load_pdf(source_path)
+    else:
+        with open(source_path, "r", encoding="utf-8") as f:
+            text = clean_text(f.read())
+        pages = [{"text": text, "page": None, "source": filename}]
+
+    ids, embeddings, metadata, documents = [], [], [], []
+    chunk_i = 0
+
+    for page_info in pages:
+        page_chunks, from_headings = chunk_text(page_info["text"])
+        min_words = 2 if from_headings else 5
+        for chunk in page_chunks:
+            if len(chunk.split()) < min_words:
+                continue
+            non_numeric = [w for w in chunk.split() if not re.match(r"^[\d.%,\-]+$", w)]
+            if len(non_numeric) / max(len(chunk.split()), 1) < 0.3:
+                continue
+            vec = get_embedding(chunk)
+            ids.append(_chunk_id(filename, page_info["page"], chunk_i))
+            embeddings.append(vec.tolist())
+            documents.append(chunk)
+            metadata.append(
+                {
+                    "source": filename,
+                    "page": page_info["page"] if page_info["page"] is not None else -1,
+                    "dedup_key": str(
+                        page_info["page"] if page_info["page"] is not None else chunk_i
+                    ),
+                    "from_headings": int(from_headings),
+                    "is_reference": int(is_references_chunk(chunk)),
+                }
+            )
+            chunk_i += 1
+
+    if ids:
+        collection.upsert(
+            ids=ids, embeddings=embeddings, documents=documents, metadata=metadata
+        )
+
+    logger.info(f"Added {len(ids)} chunks for '{filename}'.")
+    return len(ids)
+
+
+def remove_document(source: str, collection: chromadb.Collection) -> int:
+    """
+    Delete all chunks belonging to `source` (basename of the file).
+    Returns the number of chunks removed.
+    """
+    results = collection.get(where={"source": source}, include=[])
+    ids = results["ids"]
+    if ids:
+        collection.delete(ids=ids)
+    logger.info(f"Removed {len(ids)} chunks for '{source}'.")
+    return len(ids)
+
+
+# ── search ────────────────────────────────────────────────────────────────────
+
+
 def search(
     query: str,
-    chunks: list[dict],
-    index: faiss.Index,
+    collection: chromadb.Collection,
     top_k: int = 10,
     min_score: float = MIN_SCORE,
 ) -> list[dict]:
-    q_emb = get_embedding(query).reshape(1, -1)
-    faiss.normalize_L2(q_emb)
-    distances, indices = index.search(q_emb, top_k)
-    results = [
-        {**chunks[i], "score": float(distances[0][j])}
-        for j, i in enumerate(indices[0])
-        if i != -1 and distances[0][j] >= min_score
-    ]
-    results.sort(key=lambda x: x["score"], reverse=True)
-    # Dedup before re-ranking so the re-ranker sees diverse candidates
-    return deduplicate(results)
+    q_emb = get_embedding(query)
+    # Chroma cosine distance: 0 = identical, 2 = opposite.
+    # Convert to a similarity in [0, 1]: similarity = 1 - distance/2
+    results = collection.query(
+        query_embeddings=[q_emb.tolist()],
+        n_results=top_k,
+        include=["documents", "metadata", "distances"],
+    )
+
+    chunks = []
+    for doc, meta, dist in zip(
+        results["documents"][0],
+        results["metadata"][0],
+        results["distances"][0],
+    ):
+        score = 1.0 - dist / 2.0
+        if score < min_score:
+            continue
+        chunks.append(
+            {
+                "text": doc,
+                "source": meta["source"],
+                "page": meta["page"] if meta["page"] != -1 else None,
+                "dedup_key": meta["dedup_key"],
+                "from_headings": bool(meta["from_headings"]),
+                "is_reference": bool(meta["is_reference"]),
+                "score": score,
+            }
+        )
+
+    chunks.sort(key=lambda x: x["score"], reverse=True)
+    return deduplicate(chunks)
 
 
 class RAGTool(Tool):
@@ -526,28 +648,19 @@ class RAGTool(Tool):
     def run(self, query: str, app, **kwargs) -> tuple[str, list]:
         top_k = kwargs.get("top_k", 10)
         rerank_top_n = kwargs.get("rerank_top_n", RERANK_TOP_N)
-        chunks = app.state.chunks
-        index = app.state.index
+        collection = app.state.collection  # ← was chunks + index
 
-        # 1. Vector search — retrieve broad candidate set
-        candidates = search(query, chunks, index, top_k=top_k)
+        candidates = search(query, collection, top_k=top_k)
 
-        # 2. Filter out bibliography / works-cited chunks.
-        # Use the pre-tagged flag when available (chunks indexed after this
-        # change), otherwise fall back to runtime heuristic detection.
         body_candidates = [
             c
             for c in candidates
             if not c.get("is_reference", is_references_chunk(c["text"]))
         ]
-        # Fall back to all candidates if filtering removed everything
         if not body_candidates:
             body_candidates = candidates
 
-        # 3. Re-rank with LLM relevance scoring
         reranked = rerank(query, body_candidates, top_n=rerank_top_n)
-
-        # 4. Dedup again after re-ranking in case the score sort changed order
         results = deduplicate(reranked, max_per_source_page=1)
 
         context_parts = []
@@ -559,5 +672,4 @@ class RAGTool(Tool):
             )
             context_parts.append(f"{c['text']} {citation}")
 
-        context = "\n\n".join(context_parts)
-        return context, results
+        return "\n\n".join(context_parts), results

@@ -179,13 +179,9 @@ async def lifespan(app: FastAPI):
             logger.info(f"Model not downloaded. Downloading '{MODEL}'...")
             download_ollama_model(MODEL)
 
-    chunks, index, _ = load_or_build_index(DOCS_FOLDER)
-
-    app.state.chunks = chunks
-    app.state.index = index
+    app.state.collection = load_or_build_index(DOCS_FOLDER)
 
     INDEX_READY = True
-
     yield
 
 
@@ -383,12 +379,13 @@ def generate(req: PromptRequest):
 @app.get("/health")
 def health():
     ollama_ok = wait_for_ollama(HOST, timeout=2)
-
     return {
         "status": "ok" if (ollama_ok and INDEX_READY) else "starting",
         "ready": INDEX_READY,
         "ollama": ollama_ok,
-        "chunks_loaded": len(app.state.chunks) if hasattr(app.state, "chunks") else 0,
+        "chunks_loaded": (
+            app.state.collection.count() if hasattr(app.state, "collection") else 0
+        ),
     }
 
 

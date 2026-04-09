@@ -36,5 +36,8 @@ docs/*.pdf
 *.json
 *.npy
 *.faiss
+*.sqlite3
 history/
 logs/
+docs/chroma_index
+docs/faiss_index
