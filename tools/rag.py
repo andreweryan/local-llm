@@ -519,11 +519,11 @@ def load_or_build_index(folder: str = "docs") -> chromadb.Collection:
     chroma_db_file = os.path.join(index_path, "chroma.sqlite3")
 
     if os.path.exists(chroma_db_file):
-        current = checksum_folder(folder)
-        stored = read_stored_checksum(index_path)
-        if current != stored:
-            logger.info("Docs folder changed — rebuilding index...")
-            return build_index(folder)
+        # current = checksum_folder(folder)
+        # stored = read_stored_checksum(index_path)
+        # if current != stored:
+        #     logger.info("Docs folder changed — rebuilding index...")
+        #     return build_index(folder)
         logger.info(f"Loading Chroma index from {index_path}")
         return load_index(folder)
 
