@@ -28,9 +28,7 @@ package.sh
 README.pypi.md
 .mypy_cache
 test.py
-_docs/
-docs/*.md
-docs/*.pdf
+docs/
 *.txt
 *.pdf
 *.json
