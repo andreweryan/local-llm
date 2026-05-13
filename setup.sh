@@ -9,13 +9,13 @@ ollama pull gemma4:latest
 ollama pull mxbai-embed-large
 
 # Create venv
-python -m venv venv
+uv venv
 
 # Activate venv
-source venv/bin/activate
+source .venv/bin/activate
 
 # Install Project
-pip install -e .
+uv pip install -e .
 
 # Make RAG documents directory
 mkdir docs

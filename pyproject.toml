@@ -18,6 +18,7 @@ dependencies = [
     "uvicorn",
     "faiss-cpu",
     "ollama",
+    "chromadb",
     "requests",
     "tzlocal",
     "tqdm",
